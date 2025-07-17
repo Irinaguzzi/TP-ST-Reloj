@@ -37,12 +37,6 @@ int gmtOffset = -3; // Desfase horario en horas (ajustable)
 NTPClient timeClient(ntpUDP, "pool.ntp.org", gmtOffset * 3600); // Cliente NTP para obtener la hora
 ESP32Time rtc; // Reloj en tiempo real basado en ESP32
 
-//Mmáquina de estados para controlar las pantallas
-enum Estado {
-  ESTADO_INICIO,              
-  ESTADO_MOSTRAR_PANTALLA_1, 
-  ESTADO_MOSTRAR_PANTALLA_2 
-};
 Estado estado = ESTADO_INICIO; 
 
 // variables para los botones y temporización
@@ -67,7 +61,7 @@ void setup() {
     while (true); // Detener ejecución si no se puede iniciar la pantalla
   }
 
-  displayMensaje("Conectando WiFi...");  
+  displayMensaje("Conectando WiFi.");  
   WiFi.begin(ssid, password);        
   while (WiFi.status() != WL_CONNECTED) {  // Esperar hasta que se conecte
     delay(500);
@@ -87,7 +81,7 @@ void loop() {
   bool sw1 = digitalRead(SW1_PIN);
   bool sw2 = digitalRead(SW2_PIN);  
 
-  // solo leer los botones después de un intervalo de tiempo
+  // solo lee los botones después de un intervalo de tiempo
   if (ahora - tiempoBotonesAnterior >= intervaloBotones) {
     tiempoBotonesAnterior = ahora;
 
