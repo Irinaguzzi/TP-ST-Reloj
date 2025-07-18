@@ -25,9 +25,9 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1); //inicializaci
 
 //variables globales
 uint32_t delayMS; //tiempo mínimo entre lecturas del sensor, proporcionado por la biblioteca
-int temperaturaActual = 0;   //valor de temperatura leído del sensor
-int hora = 12; // hora actual mostrada en pantalla
-int minuto = 0;  //minuto actual mostrado en pantaual = ESTADO_PANTALLA_1;
+int temperaturaActual = 0; //temperatura "actual" mostrada en pantalla
+int hora = 12; // hora "actual" mostrada en pantalla
+int minuto = 0;  //minuto "actual" mostrado en pantaual
 Estado estadoAnterior = ESTADO_PANTALLA_1; // estado anterior para controlar transiciones
 
 // variables utilizadas para controlar el tiempo de lectura de temperatura y lectura de botones
@@ -60,18 +60,18 @@ void setup() {
   }
 
   display.clearDisplay(); // limpia la pantalla
-  display.setTextSize(1); // tamaño de letra chico
-  display.setTextColor(SSD1306_WHITE); // color blanco
-  display.setCursor(0, 0); // comienza a escribir en esquina superior izquierda
-  display.println("Inicializando..."); // muestra mensaje de inicio
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0, 0); // esquina superior izquierda
+  display.println("Inicializando...");
   display.display(); // actualiza la pantalla con el contenido
-  delay(1000); // espera un segundo antes de empezar
+  delay(1000);
 }
 
 void loop() {
-  unsigned long tiempoActual = millis(); // obtiene el tiempo actual en milisegundos
+  unsigned long tiempoActual = millis();
 
-  if (tiempoActual - tiempoAnterior >= intervalo) { // si pasó el tiempo suficiente
+  if (tiempoActual - tiempoAnterior >= intervalo) { 
     tiempoAnterior = tiempoActual; // actualiza el último tiempo
 
     sensors_event_t event; // crea objeto para evento del sensor
