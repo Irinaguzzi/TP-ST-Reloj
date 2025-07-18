@@ -1,180 +1,161 @@
-// CÓDIGO DEL G8 - Irina G.B., Sophie T., Amelie J. y Tiago R.
+// Guzzi, Judcovski, Tovbein, Resnik
 
-#include <WiFi.h> // Biblioteca que permite conectar el ESP32 a una red WiFi.
-#include <ESP32Time.h> // Biblioteca para manejar el tiempo en el ESP32.
-#include <NTPClient.h> // Biblioteca para obtener la hora actual desde un servidor NTP (Network Time Protocol).
-#include <WiFiUdp.h>  // Biblioteca para enviar y recibir datos a través de UDP, usado por el cliente NTP.
-#include <Adafruit_GFX.h>  // Biblioteca gráfica para manejar pantallas como la OLED.
-#include <Adafruit_SSD1306.h>  // Biblioteca para controlar pantallas OLED con el chip SSD1306.
-#include <Adafruit_Sensor.h> // Biblioteca común para todos los sensores Adafruit.
-#include <DHT.h>  // Biblioteca para trabajar con el sensor DHT.
-#include <DHT_U.h>  // Extensión de la biblioteca DHT que facilita la integración con otros sensores.
+#include <U8g2lib.h>
+#include <WiFi.h>
+#include <DHT.h>
+#include <ESP32Time.h>
+//wifi
+const char* ssid = "ORT-IoT";
+const char* password = "NuevaIOT$25";
+const char* ntpServer = "pool.ntp.org";
+int gmtOffset = -3;
+// DHT
+#define DHTPIN 23
+#define DHTTYPE DHT11
+DHT dht(DHTPIN, DHTTYPE);
 
+// Pantalla OLED
+U8G2_SH1106_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0);
 
-//WiFi
-const char* ssid     = ""; //ponemos dsps
-const char* password = "";//ponemos dsps
+// Pines
+#define BOTON1 34
+#define BOTON2 35
+#define LED 25
 
-//pantalla OLED
-#define SCREEN_WIDTH 128       
-#define SCREEN_HEIGHT 64 
-#define SDA_PIN 21 
-#define SCL_PIN 22 
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);  // Inicialización de la pantalla OLED
+// Estados
+#define P1 0
+#define P2 1
+#define RST 2
+#define ESPERA1 3
+#define ESPERA2 4
+#define AJUSTAR_GMT 5
+int estado = RST;
 
-// Config DHT
-#define DHTPIN 23       
-#define DHTTYPE DHT11 
-DHT_Unified dht(DHTPIN, DHTTYPE); 
+// Variables
+float temp;
+int ultimoTiempo = 0;
+int millis_actual;
+int millis_valor;
+int intervalo = 1000;
 
+ESP32Time rtc;
 
-#define SW1_PIN 34  
-#define SW2_PIN 35  
-
-//Config NTP y reloj
-WiFiUDP ntpUDP;  // UDP para la comunicación NTP
-int gmtOffset = -3; // Desfase horario en horas (ajustable)
-NTPClient timeClient(ntpUDP, "pool.ntp.org", gmtOffset * 3600); // Cliente NTP para obtener la hora
-ESP32Time rtc; // Reloj en tiempo real basado en ESP32
-
-Estado estado = ESTADO_INICIO; 
-
-// variables para los botones y temporización
-bool sw1Anterior = HIGH;  // Estado previo del botón 1
-bool sw2Anterior = HIGH;// Estado previo del botón 2
-unsigned long tiempoBotonesAnterior = 0; // Control de tiempos de los botones
-unsigned long intervaloBotones = 200; // Intervalo de tiempo entre lecturas de botones
-int temperaturaActual = 0; // Variable para la temperatura
+void sincronizarHora() {
+  struct tm timeinfo;
+  if (getLocalTime(&timeinfo)) {
+    rtc.setTimeStruct(timeinfo);
+  } else {
+    Serial.println("Error al sincronizar hora");
+  }
+}
 
 void setup() {
-  Serial.begin(9600);            
-  dht.begin();                
+  Serial.begin(9600);
+  pinMode(LED, OUTPUT);
+  pinMode(BOTON1, INPUT_PULLUP);
+  pinMode(BOTON2, INPUT_PULLUP);
+  u8g2.begin();
+  dht.begin();
 
-  pinMode(SW1_PIN, INPUT_PULLUP);
-  pinMode(SW2_PIN, INPUT_PULLUP);
-
-  Wire.begin(SDA_PIN, SCL_PIN);  // Iniciar comunicación I2C con la pantalla OLED
-
-  // Inicializar la pantalla OLED y mostrar mensaje si hay error
-  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
-    Serial.println("Error al iniciar la pantalla");
-    while (true); // Detener ejecución si no se puede iniciar la pantalla
-  }
-
-  displayMensaje("Conectando WiFi.");  
-  WiFi.begin(ssid, password);        
-  while (WiFi.status() != WL_CONNECTED) {  // Esperar hasta que se conecte
+  // Conexión WiFi
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
   }
+  Serial.println("\nWiFi conectado");
 
-  displayMensaje("WiFi conectado."); // Mostrar mensaje de que se logro conecta
-  timeClient.begin(); // Iniciar cliente NTP
-  timeClient.update(); // Obtener la hora
-  rtc.setTime(timeClient.getEpochTime()); // Config el reloj con la hora NTP
-
-  estado = ESTADO_MOSTRAR_PANTALLA_1; 
+  configTime(gmtOffset * 3600, 0, ntpServer);
+  sincronizarHora();
 }
 
 void loop() {
-  unsigned long ahora = millis(); // Obtener el tiempo actual desde el inicio del programa
-  bool sw1 = digitalRead(SW1_PIN);
-  bool sw2 = digitalRead(SW2_PIN);  
-
-  // solo lee los botones después de un intervalo de tiempo
-  if (ahora - tiempoBotonesAnterior >= intervaloBotones) {
-    tiempoBotonesAnterior = ahora;
-
-    // cambiar entre las pantallas si ambos botones están apretados
-    if (sw1 == LOW && sw2 == LOW && (sw1Anterior == HIGH || sw2Anterior == HIGH)) {
-      estado = (estado == ESTADO_MOSTRAR_PANTALLA_1) ? ESTADO_MOSTRAR_PANTALLA_2 : ESTADO_MOSTRAR_PANTALLA_1;
+  millis_actual = millis();
+  if (millis_actual - millis_valor >= 2000) {
+    temp = dht.readTemperature();
+    if (isnan(temp)) {
+      Serial.println(F("Error leyendo del sensor DHT!"));
+      return;
     }
 
-    //ajstar el GMT si estamos en la pantalla de configuración (Pantalla 2)
-    if (estado == ESTADO_MOSTRAR_PANTALLA_2) {
-      if (sw1Anterior == LOW && sw1 == HIGH && gmtOffset < 12) { //Aumentar el GMT
-        gmtOffset++;
-        actualizarNTP();  // Actualizar la hora NTP con el nuevo GMT
-      }
-      if (sw2Anterior == LOW && sw2 == HIGH && gmtOffset > -12) { //Disminuir el GMT
-        gmtOffset--;
-        actualizarNTP();  // Actualizar la hora NTP con el nuevo GMT
-      }
-    }
+    struct tm timeinfo = rtc.getTimeStruct();
+    int hora = timeinfo.tm_hour;
+    int minuto = timeinfo.tm_min;
 
-    //guardar los estados anteriores de los botones para el siguiente ciclo
-    sw1Anterior = sw1;
-    sw2Anterior = sw2;
-  }
+    switch (estado) {
+      case RST:
+        millis_valor = millis();
+        estado = P1;
+        break;
 
-  //obotener la temperatura actual del sensor DHT
-  temperaturaActual = obtenerTemperatura();
+      case P1:
+        mostrarPantalla(hora, minuto, temp, gmtOffset);
+        if (digitalRead(BOTON1) == LOW && digitalRead(BOTON2) == LOW) {
+          estado = ESPERA1;
+        }
+        break;
 
-  //Máquina de estados para manejar las pantallas
-  switch (estado) {
-    case ESTADO_MOSTRAR_PANTALLA_1: {  
-      display.clearDisplay(); // Limpia
-      display.setCursor(0, 0); // Establece la posición del cursoor
-      display.println("Hora y Temp"); // Título de la pantalla
+      case ESPERA1:
+        if (digitalRead(BOTON1) == HIGH && digitalRead(BOTON2) == HIGH) {
+          estado = AJUSTAR_GMT;
+        }
+        break;
 
-      struct tm timeinfo = rtc.getTimeStruct(); // Obtiene la hora actual desde el RTC
-      display.setCursor(0, 20);
-      if (timeinfo.tm_hour < 10) display.print("0"); // Formatear la hora
-      display.print(timeinfo.tm_hour);
-      display.print(":");
-      if (timeinfo.tm_min < 10) display.print("0"); // Formatear los minutos
-      display.println(timeinfo.tm_min);
+      case AJUSTAR_GMT:
+        mostrarConfigGMT(gmtOffset);
+        if (digitalRead(BOTON1) == LOW &&(millis_actual - ultimoTiempo > intervalo)) {
+          gmtOffset++;
+          ultimoTiempo = millis_actual;
+          
+          if (gmtOffset > 12) gmtOffset = -12;
+          configTime(gmtOffset * 3600, 0, ntpServer);
+          sincronizarHora();
+        }
+        if (digitalRead(BOTON2) == LOW && (millis_actual - ultimoTiempo > intervalo)) {
+          gmtOffset--;
+          ultimoTiempo = millis_actual;
+           if (gmtOffset < -12) gmtOffset = 12;
+          configTime(gmtOffset * 3600, 0, ntpServer);
+          sincronizarHora();
+        }
+        if (digitalRead(BOTON1) == LOW && digitalRead(BOTON2) == LOW) {
+          estado = ESPERA2;
+        }
+        break;
 
-      display.print("Temp: "); // Mostrar la temperatura
-      display.print(temperaturaActual);
-      display.println(" C");
-      display.display();// Actualizar la pantalla
-      break;
-    }
-
-    case ESTADO_MOSTRAR_PANTALLA_2: { // mostrar configuracion de GMT
-      display.clearDisplay(); // limpiar la pantalla
-      display.setCursor(0, 0);
-      display.setTextSize(1);
-      display.println("Config GMT");
-
-      display.setCursor(0, 20);
-      display.print("GMT: ");
-      if (gmtOffset >= 0) display.print("+"); // mostrar GMT con signo positivo o negativo
-      display.println(gmtOffset);
-
-      display.println("SW1: +1 GMT"); // instrucciones para el usuario
-      display.println("SW2: -1 GMT");
-      display.display();// actualizar la pantalla
-      break;
-    }
-
-    default: {
-      break;
+      case ESPERA2:
+        if (digitalRead(BOTON1) == HIGH && digitalRead(BOTON2) == HIGH) {
+          estado = P1;
+        }
+        break;
     }
   }
 }
 
-
-// mmostrar un mensaje en la pantalla OLED
-void displayMensaje(const char* msg) {
-  display.clearDisplay();
-  display.setCursor(0, 0);
-  display.setTextSize(1);
-  display.setTextColor(WHITE);
-  display.println(msg); // Mostrar el mensaje recibido
-  display.display();
+void mostrarPantalla(int h, int m, float t, int gmt) {
+  char strTemp[6];
+  char strHora[6];
+  sprintf(strTemp, "%.1f", t);
+  sprintf(strHora, "%02d:%02d", h, m);
+  u8g2.clearBuffer();
+  u8g2.setFont(u8g2_font_t0_11b_tr);
+  u8g2.drawStr(0, 20, "Temp:");
+  u8g2.drawStr(50, 20, strTemp);
+  u8g2.drawStr(90, 20, "C");
+  u8g2.drawStr(0, 40, "Hora:");
+  u8g2.drawStr(50, 40, strHora);
+  u8g2.drawStr(0, 60, "GMT:");
+  u8g2.setCursor(50, 60);
+  u8g2.print(gmt);
+  u8g2.sendBuffer();
 }
 
-//actualizar la hora utilizando el servidor NTP
-void actualizarNTP() {
-  timeClient.setTimeOffset(gmtOffset * 3600); // Actualizar el desfase horario
-  timeClient.update(); // Obtener la hora actualizada
-  rtc.setTime(timeClient.getEpochTime()); // Configurar el RTC con la nueva hora
+void mostrarConfigGMT(int gmt) {
+  u8g2.clearBuffer();
+  u8g2.setFont(u8g2_font_t0_11b_tr);
+  u8g2.drawStr(0, 20, "Configurar GMT:");
+  u8g2.setCursor(0, 40);
+  u8g2.print("Actual GMT: ");
+  u8g2.print(gmt);
+  u8g2.sendBuffer();
 }
-
-// oobtener la temperatura del sensor DHT
-int obtenerTemperatura() {
-  sensors_event_t event;
-  dht.temperature().getEvent(&event);  // Obtener evento de temperatura
-  return isnan(event.temperature) ? 0 : event.temperature; // Devolver temperatura o 0 si hay error
